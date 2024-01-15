@@ -8,6 +8,8 @@
 import os.path
 import sys
 
+import requests
+
 sys.path.append('..')
 try:
     # from base.spider import Spider as BaseSpider
@@ -27,11 +29,11 @@ api里会自动含有ext参数是base64编码后的选中的筛选条件
     "key":"hipy_t4_哔滴影视",
     "name":"哔滴影视(hipy_t4)",
     "type":4,
-    "api":"http://192.168.31.49:5707/api/v1/vod/哔滴影视",
+    "api":"http://192.168.31.49:5707/api/v1/vod/哔滴影视?api_ext={{host}}/txt/hipy/bidi.jar",
     "searchable":1,
     "quickSearch":0,
     "filterable":1,
-    "ext":""
+    "ext":"{{host}}/txt/hipy/bidi.jar"
 },
 {
     "key": "hipy_t3_哔滴影视",
@@ -41,7 +43,7 @@ api里会自动含有ext参数是base64编码后的选中的筛选条件
     "searchable": 1,
     "quickSearch": 0,
     "filterable": 1,
-    "ext": ""
+    "ext": "{{host}}/txt/hipy/bidi.jar"
 },
 """
 
@@ -103,7 +105,8 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
             if ext.endswith('.jar'):
                 jar_path = os.path.join(os.path.dirname(__file__), './jars')
                 os.makedirs(jar_path, exist_ok=True)
-                jar_file = os.path.join(os.path.dirname(__file__), './jars/bdys.jar')
+                # jar_file = os.path.join(os.path.dirname(__file__), './jars/bdys.jar')
+                jar_file = os.path.join(os.path.dirname(__file__), './jars/bidi.jar')
                 jar_file = Path(jar_file).as_posix()
                 need_down = False
                 msg = ''
@@ -119,6 +122,9 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
 
                 if need_down:
                     self.log(msg)
+                    if self.ENV.lower() == 't3':
+                        # ext = ext.replace('.jar', '.dex')
+                        pass
                     content = self.get_init_api(ext)
                     with open(jar_file, mode='wb+') as f:
                         f.write(content)
@@ -131,14 +137,28 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
                     break
 
         if self.javar:
-            jar_file = os.path.join(os.path.dirname(__file__), './jars/bdys.jar')
+            # jar_file = os.path.join(os.path.dirname(__file__), './jars/bdys.jar')
+            jar_file = os.path.join(os.path.dirname(__file__), './jars/bidi.jar')
             jar_file = Path(jar_file).as_posix()
             self.javar.init_jar(jar_file)
-            self.class1 = self.javar.jClass('com.C4355b')
-            self.token = str(self.class1.getToken())
+            # self.class1 = self.javar.jClass('com.C4355b')
+            self.token = str(self.javar.call_java('com.EncryptionUtils', 'getToken'))
+            # self.class1 = self.javar.jClass('com.EncryptionUtils')
+            # # class1 = self.class1() # 类实例化
+            # class1 = self.class1
+            # self.token = str(class1.getToken())
+            # print(self.token)
+            # # self.token = str(self.class1.getToken())
             self.headers.update({'token': self.token})
 
         gParam['inited'] = True
+
+    def isVideo(self):
+        """
+        返回是否为视频的匹配字符串
+        @return: None空 reg:正则表达式  js:input js代码
+        """
+        return 'js:input.includes(".m3u8)?true:false'
 
     def isVideoFormat(self, url):
         pass
@@ -245,9 +265,13 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
             if not plays.get(title):
                 plays[title] = []
 
-            if p.get('tosId'):
-                purl = self.api + '/playurl/' + str(p['id']) + '?type=' + str(p.get('tosId') or '0')
-                plays[title].append({'name': '至尊线路', 'url': f'vip://{purl}'})
+            _type = '1' if p.get('tosId') else '0'
+            purl = self.api + '/playurl/' + str(p['id']) + '?type=' + _type
+            plays[title].append({'name': '至尊线路', 'url': f'vip://{purl}'})
+
+            # if p.get('tosId'):
+            #     purl = self.api + '/playurl/' + str(p['id']) + '?type=' + str(p.get('tosId') or '0')
+            #     plays[title].append({'name': '至尊线路', 'url': f'vip://{purl}'})
 
             if p.get('url'):
                 for p0 in p['url'].split(','):
@@ -353,6 +377,12 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
             proxyUrl = self.getProxyUrl()
             if proxyUrl:
                 url = proxyUrl + '&url=' + url + '&name=1.m3u8'
+        elif '/obj/' in url:
+            headers.update({
+                'Cookie': 'm=1',
+                'app': '1',
+                'Referer': 'https://doc.weixin.qq.com/',
+            })
         result = {
             'parse': parse,  # 1=嗅探,0=播放
             'playUrl': '',  # 解析链接
@@ -375,6 +405,11 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
     def localProxy(self, params):
         # print(params)
         url = params.get('url')
+        if not url:
+            # return [302, 'text/html', None, {'location': 'https://www.baidu.com'}]
+            # return [404, 'text/plain', 'Not Found']
+            return [403, 'text/plain', '403 forbidden. url is required']
+
         name = params.get('name') or 'm3u8'
         burl = 'https://www.bdys03.com'
         new_url = url.replace("www.bde4.cc", "www.bdys03.com")
@@ -391,14 +426,18 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
         content = pdata.strip()
 
         media_type = 'text/plain' if 'txt' in name else 'video/MP2T'
-
         return [200, media_type, content]
 
     # -----------------------------------------------自定义函数-----------------------------------------------
     def decode(self, text):
         bt = base64.b64decode(text)
-        res = self.class1.dec(bt)
-        return self.str2json(str(res))
+        # self.log(self.headers)
+        if self.ENV.lower() == 't3':
+            bt = self.javar.jarBytes(bt)
+        res = self.javar.call_java('com.EncryptionUtils', 'dec', bt)
+        # res = self.class1.dec(bt)
+        # print(str(res))
+        return self.str2json(str(res)) if res else None
 
     def process_data(self, req_bytes):
         """
@@ -422,10 +461,20 @@ if __name__ == '__main__':
     # spider.log('====文本内容====')
     # print(spider.homeContent(True))
     # print(spider.homeVideoContent())
+    r = requests.head(
+        'http://192.168.31.49:5707/api/v1/vod/%E5%93%94%E6%BB%B4%E5%BD%B1%E8%A7%86?proxy=1&do=py&url=https://www.bde4.cc/10E79044B82A84F70BE1308FFA5232E4DC3D0CA9EC2BF6B1D4EF56B2CE5B67CF238965CCAE17F859665B7E166720986D.m3u8')
+    print(r.headers, r.content)
+    r = requests.get('https://www.bdys10.com/obj/63BEE3B148E464F16EE62435C53087B994902679D844EA9CC3615658CF55E01D',
+                     headers={
+                         'Cookie': 'm=1',
+                         'app': '1',
+                         'Referer': 'https://doc.weixin.qq.com/',
+                     })
+    print(r.text)
     # print(spider.categoryContent('0', 1, False, None))
     # print(spider.detailContent([24420]))
     # spider.searchContent('斗罗大陆')
     # print(spider.playerContent('至尊线路', 'vip://https://www.bdys03.com/api/v1/playurl/174296?type=1', None))
-    print(spider.playerContent('需要解析',
-                               'https://www.bde4.cc/10E79044B82A84F70BE1308FFA5232E4DC3D0CA9EC2BF6B1D4EF56B2CE5B67CF238965CCAE17F859665B7E166720986D.m3u8',
-                               None))
+    # print(spider.playerContent('需要解析',
+    #                            'https://www.bde4.cc/10E79044B82A84F70BE1308FFA5232E4DC3D0CA9EC2BF6B1D4EF56B2CE5B67CF238965CCAE17F859665B7E166720986D.m3u8',
+    #                            None))
